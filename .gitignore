@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.poetry/
+pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.idea/
+.vscode/
