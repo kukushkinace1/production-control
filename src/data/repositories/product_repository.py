@@ -14,3 +14,8 @@ class ProductRepository(BaseRepository):
         stmt = select(Product).where(Product.unique_code == unique_code)
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def get_by_unique_codes(self, unique_codes: list[str]) -> list[Product]:
+        stmt = select(Product).where(Product.unique_code.in_(unique_codes))
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())

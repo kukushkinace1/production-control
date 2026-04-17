@@ -17,3 +17,10 @@ class ProductResponse(APIModel):
     is_aggregated: bool
     aggregated_at: datetime | None
     created_at: datetime
+
+
+class ProductBatchItemResponse(APIModel):
+    id: int
+    unique_code: str
+    is_aggregated: bool
+    aggregated_at: datetime | None
