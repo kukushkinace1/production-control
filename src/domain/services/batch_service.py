@@ -3,9 +3,16 @@ from datetime import UTC, datetime
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.v1.schemas.batch import BatchCreateRequest, BatchFilterParams, BatchUpdateRequest
+from src.api.v1.schemas.batch import (
+    AggregationError,
+    BatchAggregationRequest,
+    BatchAggregationResponse,
+    BatchCreateRequest,
+    BatchFilterParams,
+    BatchUpdateRequest,
+)
 from src.data.models import Batch, WorkCenter
-from src.data.repositories import BatchRepository, WorkCenterRepository
+from src.data.repositories import BatchRepository, ProductRepository, WorkCenterRepository
 from src.domain.exceptions import ConflictError, NotFoundError
 
 
@@ -13,6 +20,7 @@ class BatchService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
         self.batch_repository = BatchRepository(session)
+        self.product_repository = ProductRepository(session)
         self.work_center_repository = WorkCenterRepository(session)
 
     async def create_batches(self, payloads: list[BatchCreateRequest]) -> list[Batch]:
@@ -97,15 +105,57 @@ class BatchService:
 
         return await self.get_batch(batch_id)
 
-    async def aggregate_batch_products(self, batch_id: int) -> Batch:
+    async def aggregate_batch_products(
+        self,
+        batch_id: int,
+        payload: BatchAggregationRequest,
+    ) -> BatchAggregationResponse:
         batch = await self.get_batch(batch_id)
+        requested_codes = payload.unique_codes or []
+        products = await self.product_repository.get_by_unique_codes(requested_codes)
+        products_by_code = {product.unique_code: product for product in products}
+
+        aggregated = 0
+        errors: list[AggregationError] = []
         aggregated_at = datetime.now(UTC)
-        for product in batch.products:
+
+        for unique_code in requested_codes:
+            product = products_by_code.get(unique_code)
+            if product is None:
+                errors.append(AggregationError(unique_code=unique_code, error="Product not found."))
+                continue
+
+            if product.batch_id != batch.id:
+                errors.append(
+                    AggregationError(
+                        unique_code=unique_code,
+                        error=f"Product does not belong to batch {batch.id}.",
+                    )
+                )
+                continue
+
+            if product.is_aggregated:
+                errors.append(
+                    AggregationError(
+                        unique_code=unique_code,
+                        error="Product is already aggregated.",
+                    )
+                )
+                continue
+
             product.is_aggregated = True
             product.aggregated_at = aggregated_at
+            aggregated += 1
 
         await self.session.commit()
-        return await self.get_batch(batch_id)
+
+        return BatchAggregationResponse(
+            batch_id=batch.id,
+            total=len(requested_codes),
+            aggregated=aggregated,
+            failed=len(errors),
+            errors=errors,
+        )
 
     async def _get_or_create_work_center(self, identifier: str, name: str) -> WorkCenter:
         work_center = await self.work_center_repository.get_by_identifier(identifier)

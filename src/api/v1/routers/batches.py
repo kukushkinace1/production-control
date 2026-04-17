@@ -3,7 +3,10 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, status
 
 from src.api.v1.schemas.batch import (
+    BatchAggregationRequest,
+    BatchAggregationResponse,
     BatchCreateRequest,
+    BatchDetailResponse,
     BatchFilterParams,
     BatchListResponse,
     BatchResponse,
@@ -25,10 +28,10 @@ async def create_batches(
     return [BatchResponse.model_validate(batch) for batch in batches]
 
 
-@router.get("/{batch_id}", response_model=BatchResponse)
-async def get_batch(batch_id: int, service: BatchServiceDep) -> BatchResponse:
+@router.get("/{batch_id}", response_model=BatchDetailResponse)
+async def get_batch(batch_id: int, service: BatchServiceDep) -> BatchDetailResponse:
     batch = await service.get_batch(batch_id)
-    return BatchResponse.model_validate(batch)
+    return BatchDetailResponse.model_validate(batch)
 
 
 @router.patch("/{batch_id}", response_model=BatchResponse)
@@ -72,7 +75,10 @@ async def list_batches(
     )
 
 
-@router.post("/{batch_id}/aggregate", response_model=BatchResponse)
-async def aggregate_batch(batch_id: int, service: BatchServiceDep) -> BatchResponse:
-    batch = await service.aggregate_batch_products(batch_id)
-    return BatchResponse.model_validate(batch)
+@router.post("/{batch_id}/aggregate", response_model=BatchAggregationResponse)
+async def aggregate_batch(
+    batch_id: int,
+    payload: BatchAggregationRequest,
+    service: BatchServiceDep,
+) -> BatchAggregationResponse:
+    return await service.aggregate_batch_products(batch_id, payload)

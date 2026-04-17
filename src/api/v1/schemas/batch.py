@@ -1,9 +1,9 @@
 from datetime import date, datetime
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, model_validator
 
 from src.api.v1.schemas.common import APIModel, PaginationResponse
-from src.api.v1.schemas.product import ProductResponse
+from src.api.v1.schemas.product import ProductBatchItemResponse, ProductResponse
 
 
 class BatchCreateRequest(APIModel):
@@ -109,5 +109,45 @@ class BatchResponse(APIModel):
     products: list[ProductResponse]
 
 
+class BatchDetailResponse(APIModel):
+    id: int
+    is_closed: bool
+    batch_number: int
+    batch_date: date
+    products: list[ProductBatchItemResponse]
+
+
 class BatchListResponse(PaginationResponse):
     items: list[BatchResponse]
+
+
+class BatchAggregationRequest(APIModel):
+    unique_codes: list[str] | None = Field(default=None, min_length=1)
+    unique_code: str | None = Field(default=None, min_length=1, max_length=255)
+
+    @model_validator(mode="after")
+    def normalize_unique_codes(self) -> "BatchAggregationRequest":
+        if self.unique_codes is None and self.unique_code is None:
+            raise ValueError("Either unique_codes or unique_code must be provided.")
+
+        if self.unique_codes is None:
+            self.unique_codes = [self.unique_code] if self.unique_code is not None else []
+
+        self.unique_codes = [code.strip() for code in self.unique_codes if code.strip()]
+        if not self.unique_codes:
+            raise ValueError("At least one non-empty unique code must be provided.")
+
+        return self
+
+
+class AggregationError(APIModel):
+    unique_code: str
+    error: str
+
+
+class BatchAggregationResponse(APIModel):
+    batch_id: int
+    total: int
+    aggregated: int
+    failed: int
+    errors: list[AggregationError]
