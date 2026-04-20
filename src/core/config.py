@@ -16,6 +16,16 @@ class Settings(BaseSettings):
     postgres_password: str = "production_control"
     postgres_host: str = "postgres"
     postgres_port: int = 5433
+    redis_host: str = "redis"
+    redis_port: int = 6379
+    redis_db: int = 0
+    rabbitmq_default_user: str = "production_control"
+    rabbitmq_default_pass: str = "production_control"
+    rabbitmq_host: str = "rabbitmq"
+    rabbitmq_port: int = 5672
+    celery_task_serializer: str = "json"
+    celery_result_serializer: str = "json"
+    celery_accept_content: str = "json"
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -31,6 +41,20 @@ class Settings(BaseSettings):
             "postgresql+asyncpg://"
             f"{self.postgres_user}:{self.postgres_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
+        )
+
+    @computed_field
+    @property
+    def redis_url(self) -> str:
+        return f"redis://{self.redis_host}:{self.redis_port}/{self.redis_db}"
+
+    @computed_field
+    @property
+    def rabbitmq_url(self) -> str:
+        return (
+            "amqp://"
+            f"{self.rabbitmq_default_user}:{self.rabbitmq_default_pass}"
+            f"@{self.rabbitmq_host}:{self.rabbitmq_port}//"
         )
 
 
