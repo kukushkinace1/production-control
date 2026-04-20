@@ -3,6 +3,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, status
 
 from src.api.v1.schemas.batch import (
+    BatchAsyncAggregationRequest,
     BatchAggregationRequest,
     BatchAggregationResponse,
     BatchCreateRequest,
@@ -12,7 +13,9 @@ from src.api.v1.schemas.batch import (
     BatchResponse,
     BatchUpdateRequest,
 )
+from src.api.v1.schemas.task import TaskAcceptedResponse
 from src.core.dependencies import get_batch_service
+from src.tasks.aggregation import aggregate_products_batch
 from src.domain.services import BatchService
 
 router = APIRouter(prefix="/batches", tags=["batches"])
@@ -82,3 +85,22 @@ async def aggregate_batch(
     service: BatchServiceDep,
 ) -> BatchAggregationResponse:
     return await service.aggregate_batch_products(batch_id, payload)
+
+
+@router.post(
+    "/{batch_id}/aggregate-async",
+    response_model=TaskAcceptedResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def aggregate_batch_async(
+    batch_id: int,
+    payload: BatchAsyncAggregationRequest,
+    service: BatchServiceDep,
+) -> TaskAcceptedResponse:
+    await service.get_batch(batch_id)
+    task = aggregate_products_batch.delay(batch_id=batch_id, unique_codes=payload.unique_codes)
+    return TaskAcceptedResponse(
+        task_id=task.id,
+        status="PENDING",
+        message="Aggregation task started",
+    )

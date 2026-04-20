@@ -1,3 +1,4 @@
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 
 from sqlalchemy.exc import IntegrityError
@@ -110,48 +111,57 @@ class BatchService:
         batch_id: int,
         payload: BatchAggregationRequest,
     ) -> BatchAggregationResponse:
+        return await self.aggregate_products_by_codes(batch_id, payload.unique_codes or [])
+
+    async def aggregate_products_by_codes(
+        self,
+        batch_id: int,
+        unique_codes: list[str],
+        progress_callback: Callable[[int, int], Awaitable[None] | None] | None = None,
+    ) -> BatchAggregationResponse:
         batch = await self.get_batch(batch_id)
-        requested_codes = payload.unique_codes or []
+        requested_codes = [code.strip() for code in unique_codes if code.strip()]
         products = await self.product_repository.get_by_unique_codes(requested_codes)
         products_by_code = {product.unique_code: product for product in products}
 
         aggregated = 0
         errors: list[AggregationError] = []
         aggregated_at = datetime.now(UTC)
+        total = len(requested_codes)
 
-        for unique_code in requested_codes:
+        for index, unique_code in enumerate(requested_codes, start=1):
             product = products_by_code.get(unique_code)
             if product is None:
                 errors.append(AggregationError(unique_code=unique_code, error="Product not found."))
-                continue
-
-            if product.batch_id != batch.id:
+            elif product.batch_id != batch.id:
                 errors.append(
                     AggregationError(
                         unique_code=unique_code,
                         error=f"Product does not belong to batch {batch.id}.",
                     )
                 )
-                continue
-
-            if product.is_aggregated:
+            elif product.is_aggregated:
                 errors.append(
                     AggregationError(
                         unique_code=unique_code,
                         error="Product is already aggregated.",
                     )
                 )
-                continue
+            else:
+                product.is_aggregated = True
+                product.aggregated_at = aggregated_at
+                aggregated += 1
 
-            product.is_aggregated = True
-            product.aggregated_at = aggregated_at
-            aggregated += 1
+            if progress_callback is not None:
+                maybe_awaitable = progress_callback(index, total)
+                if maybe_awaitable is not None:
+                    await maybe_awaitable
 
         await self.session.commit()
 
         return BatchAggregationResponse(
             batch_id=batch.id,
-            total=len(requested_codes),
+            total=total,
             aggregated=aggregated,
             failed=len(errors),
             errors=errors,

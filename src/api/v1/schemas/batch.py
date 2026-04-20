@@ -140,6 +140,18 @@ class BatchAggregationRequest(APIModel):
         return self
 
 
+class BatchAsyncAggregationRequest(APIModel):
+    unique_codes: list[str] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def normalize_unique_codes(self) -> "BatchAsyncAggregationRequest":
+        self.unique_codes = [code.strip() for code in self.unique_codes if code.strip()]
+        if not self.unique_codes:
+            raise ValueError("At least one non-empty unique code must be provided.")
+
+        return self
+
+
 class AggregationError(APIModel):
     unique_code: str
     error: str
