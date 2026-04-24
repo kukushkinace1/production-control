@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from io import BytesIO
 from mimetypes import guess_type
 
@@ -61,6 +61,17 @@ class MinIOService:
         finally:
             response.close()
             response.release_conn()
+
+    def delete_objects_older_than(self, *, bucket: str, older_than: datetime) -> int:
+        deleted = 0
+        objects = self.client.list_objects(bucket_name=bucket, recursive=True)
+        for obj in objects:
+            if obj.object_name is None or obj.last_modified is None:
+                continue
+            if obj.last_modified < older_than:
+                self.client.remove_object(bucket_name=bucket, object_name=obj.object_name)
+                deleted += 1
+        return deleted
 
     def get_presigned_url(
         self,

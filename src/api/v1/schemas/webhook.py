@@ -9,6 +9,7 @@ from src.api.v1.schemas.common import APIModel, PaginationResponse
 
 WebhookEvent = Literal[
     "batch_created",
+    "batch_updated",
     "batch_closed",
     "product_aggregated",
     "report_generated",

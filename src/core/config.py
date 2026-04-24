@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     redis_host: str = "redis"
     redis_port: int = 6379
     redis_db: int = 0
+    rate_limit_enabled: bool = True
+    rate_limit_requests: int = 120
+    rate_limit_window_seconds: int = 60
     rabbitmq_default_user: str = "production_control"
     rabbitmq_default_pass: str = "production_control"
     rabbitmq_host: str = "rabbitmq"
