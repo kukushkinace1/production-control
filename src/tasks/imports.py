@@ -46,11 +46,21 @@ async def _import_batches_from_file_async(
                 state="PROGRESS",
             )
 
-        return await service.import_batch_rows(
+        result = await service.import_batch_rows(
             rows=rows,
             validation_errors=validation_errors,
             progress_callback=update_progress,
         )
+        await service._emit_event(
+            "import_completed",
+            {
+                "total_rows": result["total_rows"],
+                "created": result["created"],
+                "skipped": result["skipped"],
+                "errors": result["errors"],
+            },
+        )
+        return result
 
 
 @celery_app.task(bind=True, max_retries=1)

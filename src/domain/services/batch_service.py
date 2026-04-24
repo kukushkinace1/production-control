@@ -12,8 +12,13 @@ from src.api.v1.schemas.batch import (
     BatchFilterParams,
     BatchUpdateRequest,
 )
-from src.data.models import Batch, WorkCenter
-from src.data.repositories import BatchRepository, ProductRepository, WorkCenterRepository
+from src.data.models import Batch, Product, WorkCenter
+from src.data.repositories import (
+    BatchRepository,
+    ProductRepository,
+    WebhookRepository,
+    WorkCenterRepository,
+)
 from src.domain.exceptions import ConflictError, NotFoundError
 
 
@@ -22,6 +27,7 @@ class BatchService:
         self.session = session
         self.batch_repository = BatchRepository(session)
         self.product_repository = ProductRepository(session)
+        self.webhook_repository = WebhookRepository(session)
         self.work_center_repository = WorkCenterRepository(session)
 
     async def create_batches(self, payloads: list[BatchCreateRequest]) -> list[Batch]:
@@ -65,7 +71,10 @@ class BatchService:
             await self.session.rollback()
             raise ConflictError("Batch creation conflicts with existing data.") from exc
 
-        return [await self.get_batch(batch.id) for batch in created_batches]
+        batches = [await self.get_batch(batch.id) for batch in created_batches]
+        for batch in batches:
+            await self._emit_event("batch_created", self._build_batch_event_payload(batch))
+        return batches
 
     async def get_batch(self, batch_id: int) -> Batch:
         batch = await self.batch_repository.get_by_id(batch_id)
@@ -88,7 +97,9 @@ class BatchService:
 
     async def update_batch(self, batch_id: int, payload: BatchUpdateRequest) -> Batch:
         batch = await self.get_batch(batch_id)
+        was_closed = batch.is_closed
         updates = payload.model_dump(exclude_unset=True)
+        closes_batch = updates.get("is_closed") is True and not was_closed
 
         if "is_closed" in updates:
             is_closed = updates.pop("is_closed")
@@ -104,7 +115,19 @@ class BatchService:
             await self.session.rollback()
             raise ConflictError("Batch update conflicts with existing data.") from exc
 
-        return await self.get_batch(batch_id)
+        updated_batch = await self.get_batch(batch_id)
+        if closes_batch:
+            await self._emit_event(
+                "batch_closed",
+                {
+                    **self._build_batch_event_payload(updated_batch),
+                    "closed_at": updated_batch.closed_at.isoformat()
+                    if updated_batch.closed_at is not None
+                    else None,
+                    "statistics": self._build_batch_statistics_payload(updated_batch),
+                },
+            )
+        return updated_batch
 
     async def aggregate_batch_products(
         self,
@@ -125,6 +148,7 @@ class BatchService:
         products_by_code = {product.unique_code: product for product in products}
 
         aggregated = 0
+        aggregated_products: list[Product] = []
         errors: list[AggregationError] = []
         aggregated_at = datetime.now(UTC)
         total = len(requested_codes)
@@ -151,6 +175,7 @@ class BatchService:
                 product.is_aggregated = True
                 product.aggregated_at = aggregated_at
                 aggregated += 1
+                aggregated_products.append(product)
 
             if progress_callback is not None:
                 maybe_awaitable = progress_callback(index, total)
@@ -158,6 +183,19 @@ class BatchService:
                     await maybe_awaitable
 
         await self.session.commit()
+
+        for product in aggregated_products:
+            await self._emit_event(
+                "product_aggregated",
+                {
+                    "unique_code": product.unique_code,
+                    "batch_id": batch.id,
+                    "batch_number": getattr(batch, "batch_number", None),
+                    "aggregated_at": product.aggregated_at.isoformat()
+                    if product.aggregated_at is not None
+                    else None,
+                },
+            )
 
         return BatchAggregationResponse(
             batch_id=batch.id,
@@ -324,6 +362,39 @@ class BatchService:
         work_center = WorkCenter(identifier=identifier, name=name)
         await self.work_center_repository.create(work_center)
         return work_center
+
+    async def _emit_event(self, event_type: str, payload: dict) -> None:
+        subscriptions = await self.webhook_repository.list_active_subscriptions_for_event(
+            event_type,
+        )
+        if not subscriptions:
+            return
+
+        from src.domain.services.webhook_service import WebhookService
+
+        service = WebhookService(self.session)
+        await service.emit_event(event_type, payload)
+
+    def _build_batch_event_payload(self, batch: Batch) -> dict:
+        return {
+            "id": batch.id,
+            "batch_number": batch.batch_number,
+            "batch_date": batch.batch_date.isoformat(),
+            "nomenclature": batch.nomenclature,
+            "work_center": batch.work_center.name,
+            "work_center_identifier": batch.work_center.identifier,
+        }
+
+    def _build_batch_statistics_payload(self, batch: Batch) -> dict:
+        total_products = len(batch.products)
+        aggregated = sum(1 for product in batch.products if product.is_aggregated)
+        return {
+            "total_products": total_products,
+            "aggregated": aggregated,
+            "aggregation_rate": round((aggregated / total_products) * 100, 2)
+            if total_products
+            else 0.0,
+        }
 
 
 def _parse_filter_date(value) -> date | None:

@@ -13,6 +13,7 @@ celery_app = Celery(
         "src.tasks.exports",
         "src.tasks.imports",
         "src.tasks.reports",
+        "src.tasks.webhooks",
     ],
 )
 
