@@ -78,8 +78,11 @@ def generate_batch_report(self, batch_id: int, report_format: str = "excel") -> 
             )
         )
     except DomainError:
-        logger.exception("Batch report generation failed without retry", extra={"batch_id": batch_id})
+        logger.exception(
+            "Batch report generation failed without retry",
+            extra={"batch_id": batch_id},
+        )
         raise
     except Exception as exc:
         logger.exception("Batch report generation failed", extra={"batch_id": batch_id})
-        raise self.retry(exc=exc, countdown=min(2**self.request.retries, 30))
+        raise self.retry(exc=exc, countdown=min(2**self.request.retries, 30)) from exc

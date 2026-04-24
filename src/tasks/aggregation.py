@@ -68,8 +68,11 @@ def aggregate_products_batch(
             result["user_id"] = user_id
         return result
     except DomainError:
-        logger.exception("Batch aggregation task failed without retry", extra={"batch_id": batch_id})
+        logger.exception(
+            "Batch aggregation task failed without retry",
+            extra={"batch_id": batch_id},
+        )
         raise
     except Exception as exc:
         logger.exception("Batch aggregation task failed", extra={"batch_id": batch_id})
-        raise self.retry(exc=exc, countdown=min(2**self.request.retries, 30))
+        raise self.retry(exc=exc, countdown=min(2**self.request.retries, 30)) from exc

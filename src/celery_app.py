@@ -8,7 +8,12 @@ celery_app = Celery(
     "production_control",
     broker=settings.rabbitmq_url,
     backend=settings.redis_url,
-    include=["src.tasks.aggregation", "src.tasks.reports"],
+    include=[
+        "src.tasks.aggregation",
+        "src.tasks.exports",
+        "src.tasks.imports",
+        "src.tasks.reports",
+    ],
 )
 
 celery_app.conf.update(

@@ -1,5 +1,5 @@
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -174,7 +174,9 @@ class BatchService:
         remaining_products = total_products - aggregated_products
         shift_duration = batch.shift_end - batch.shift_start
         shift_duration_hours = round(shift_duration.total_seconds() / 3600, 2)
-        aggregation_rate = round((aggregated_products / total_products) * 100, 2) if total_products else 0.0
+        aggregation_rate = (
+            round((aggregated_products / total_products) * 100, 2) if total_products else 0.0
+        )
 
         return {
             "batch": {
@@ -213,6 +215,107 @@ class BatchService:
             "generated_at": datetime.now(UTC).isoformat(),
         }
 
+    async def import_batch_rows(
+        self,
+        rows: list[dict],
+        validation_errors: list[dict] | None = None,
+        progress_callback: Callable[[int, int, int, int], Awaitable[None] | None] | None = None,
+    ) -> dict:
+        errors = list(validation_errors or [])
+        created = 0
+        skipped = 0
+        total_rows = len(rows) + len(errors)
+
+        for index, row in enumerate(rows, start=1):
+            row_number = row.get("_row_number", index)
+            existing_batch = await self.batch_repository.get_by_number_and_date(
+                row["batch_number"],
+                row["batch_date"],
+            )
+            if existing_batch is not None:
+                skipped += 1
+                errors.append(
+                    {
+                        "row": row_number,
+                        "error": "Duplicate batch number and date.",
+                    }
+                )
+            else:
+                try:
+                    work_center = await self._get_or_create_work_center(
+                        row["work_center_identifier"],
+                        row["work_center_name"],
+                    )
+                    batch = Batch(
+                        is_closed=row["is_closed"],
+                        closed_at=datetime.now(UTC) if row["is_closed"] else None,
+                        task_description=row["task_description"],
+                        work_center_id=work_center.id,
+                        shift=row["shift"],
+                        team=row["team"],
+                        batch_number=row["batch_number"],
+                        batch_date=row["batch_date"],
+                        nomenclature=row["nomenclature"],
+                        ekn_code=row["ekn_code"],
+                        shift_start=row["shift_start"],
+                        shift_end=row["shift_end"],
+                    )
+                    await self.batch_repository.create(batch)
+                    await self.session.commit()
+                    created += 1
+                except IntegrityError as exc:
+                    await self.session.rollback()
+                    skipped += 1
+                    errors.append({"row": row_number, "error": str(exc.orig)})
+
+            if progress_callback is not None:
+                maybe_awaitable = progress_callback(index, total_rows, created, skipped)
+                if maybe_awaitable is not None:
+                    await maybe_awaitable
+
+        skipped += len(validation_errors or [])
+        return {
+            "success": True,
+            "total_rows": total_rows,
+            "created": created,
+            "skipped": skipped,
+            "errors": errors,
+        }
+
+    async def get_batches_export_data(self, filters: dict) -> list[dict]:
+        date_from = _parse_filter_date(filters.get("date_from"))
+        date_to = _parse_filter_date(filters.get("date_to"))
+        batches = await self.batch_repository.list_for_export(
+            is_closed=filters.get("is_closed"),
+            batch_number=filters.get("batch_number"),
+            date_from=date_from,
+            date_to=date_to,
+            work_center_identifier=filters.get("work_center_identifier"),
+            shift=filters.get("shift"),
+        )
+        return [
+            {
+                "id": batch.id,
+                "batch_number": batch.batch_number,
+                "batch_date": batch.batch_date,
+                "is_closed": batch.is_closed,
+                "work_center_identifier": batch.work_center.identifier,
+                "work_center_name": batch.work_center.name,
+                "shift": batch.shift,
+                "team": batch.team,
+                "nomenclature": batch.nomenclature,
+                "ekn_code": batch.ekn_code,
+                "task_description": batch.task_description,
+                "shift_start": batch.shift_start,
+                "shift_end": batch.shift_end,
+                "products_total": len(batch.products),
+                "products_aggregated": sum(
+                    1 for product in batch.products if product.is_aggregated
+                ),
+            }
+            for batch in batches
+        ]
+
     async def _get_or_create_work_center(self, identifier: str, name: str) -> WorkCenter:
         work_center = await self.work_center_repository.get_by_identifier(identifier)
         if work_center is not None:
@@ -221,3 +324,11 @@ class BatchService:
         work_center = WorkCenter(identifier=identifier, name=name)
         await self.work_center_repository.create(work_center)
         return work_center
+
+
+def _parse_filter_date(value) -> date | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, date):
+        return value
+    return date.fromisoformat(str(value))

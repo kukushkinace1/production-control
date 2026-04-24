@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import timedelta
 from io import BytesIO
 from mimetypes import guess_type
-from urllib.parse import urlsplit, urlunsplit
 
 from minio import Minio
 
@@ -19,6 +18,14 @@ class MinIOService:
             access_key=settings.minio_root_user,
             secret_key=settings.minio_root_password,
             secure=settings.minio_secure,
+            region=settings.minio_region,
+        )
+        self.public_client = Minio(
+            endpoint=settings.minio_public_endpoint,
+            access_key=settings.minio_root_user,
+            secret_key=settings.minio_root_password,
+            secure=settings.minio_secure,
+            region=settings.minio_region,
         )
 
     def ensure_bucket(self, bucket: str) -> None:
@@ -47,6 +54,14 @@ class MinIOService:
             expires_days=expires_days,
         )
 
+    def download_bytes(self, *, bucket: str, object_name: str) -> bytes:
+        response = self.client.get_object(bucket_name=bucket, object_name=object_name)
+        try:
+            return response.read()
+        finally:
+            response.close()
+            response.release_conn()
+
     def get_presigned_url(
         self,
         *,
@@ -55,26 +70,12 @@ class MinIOService:
         expires_days: int | None = None,
     ) -> str:
         expires = timedelta(days=expires_days or self.settings.minio_presigned_expires_days)
-        url = self.client.presigned_get_object(
+        return self.public_client.presigned_get_object(
             bucket_name=bucket,
             object_name=object_name,
             expires=expires,
         )
-        return self._to_public_url(url)
 
     def _get_content_type(self, object_name: str) -> str:
         content_type, _ = guess_type(object_name)
         return content_type or "application/octet-stream"
-
-    def _to_public_url(self, url: str) -> str:
-        parsed = urlsplit(url)
-        scheme = "https" if self.settings.minio_secure else "http"
-        return urlunsplit(
-            (
-                scheme,
-                self.settings.minio_public_endpoint,
-                parsed.path,
-                parsed.query,
-                parsed.fragment,
-            )
-        )

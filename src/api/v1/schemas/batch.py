@@ -157,6 +157,20 @@ class BatchReportRequest(APIModel):
     format: Literal["excel"] = "excel"
 
 
+class BatchExportFilters(APIModel):
+    is_closed: bool | None = None
+    batch_number: int | None = Field(default=None, gt=0)
+    date_from: date | None = None
+    date_to: date | None = None
+    work_center_identifier: str | None = None
+    shift: str | None = None
+
+
+class BatchExportRequest(APIModel):
+    format: Literal["excel", "csv"] = "excel"
+    filters: BatchExportFilters = Field(default_factory=BatchExportFilters)
+
+
 class AggregationError(APIModel):
     unique_code: str
     error: str
