@@ -167,6 +167,52 @@ class BatchService:
             errors=errors,
         )
 
+    async def get_batch_report_data(self, batch_id: int) -> dict:
+        batch = await self.get_batch(batch_id)
+        total_products = len(batch.products)
+        aggregated_products = sum(1 for product in batch.products if product.is_aggregated)
+        remaining_products = total_products - aggregated_products
+        shift_duration = batch.shift_end - batch.shift_start
+        shift_duration_hours = round(shift_duration.total_seconds() / 3600, 2)
+        aggregation_rate = round((aggregated_products / total_products) * 100, 2) if total_products else 0.0
+
+        return {
+            "batch": {
+                "id": batch.id,
+                "batch_number": batch.batch_number,
+                "batch_date": batch.batch_date.isoformat(),
+                "task_description": batch.task_description,
+                "work_center_name": batch.work_center.name,
+                "work_center_identifier": batch.work_center.identifier,
+                "shift": batch.shift,
+                "team": batch.team,
+                "nomenclature": batch.nomenclature,
+                "ekn_code": batch.ekn_code,
+                "is_closed": batch.is_closed,
+                "shift_start": batch.shift_start.isoformat(),
+                "shift_end": batch.shift_end.isoformat(),
+            },
+            "products": [
+                {
+                    "unique_code": product.unique_code,
+                    "is_aggregated": product.is_aggregated,
+                    "aggregated_at": product.aggregated_at.isoformat()
+                    if product.aggregated_at is not None
+                    else None,
+                    "created_at": product.created_at.isoformat(),
+                }
+                for product in batch.products
+            ],
+            "statistics": {
+                "total_products": total_products,
+                "aggregated_products": aggregated_products,
+                "remaining_products": remaining_products,
+                "aggregation_rate": aggregation_rate,
+                "shift_duration_hours": shift_duration_hours,
+            },
+            "generated_at": datetime.now(UTC).isoformat(),
+        }
+
     async def _get_or_create_work_center(self, identifier: str, name: str) -> WorkCenter:
         work_center = await self.work_center_repository.get_by_identifier(identifier)
         if work_center is not None:

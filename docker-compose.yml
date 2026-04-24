@@ -12,6 +12,10 @@ services:
       REDIS_PORT: 6379
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_PORT: 5672
+      MINIO_HOST: minio
+      MINIO_PORT: 9000
+      MINIO_PUBLIC_HOST: localhost
+      MINIO_PUBLIC_PORT: 9000
     ports:
       - "8000:8000"
     depends_on:
@@ -23,6 +27,8 @@ services:
         condition: service_healthy
       minio:
         condition: service_started
+      minio_init:
+        condition: service_completed_successfully
     command: uvicorn src.main:app --host 0.0.0.0 --port 8000
     healthcheck:
       test:
@@ -50,6 +56,10 @@ services:
       REDIS_PORT: 6379
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_PORT: 5672
+      MINIO_HOST: minio
+      MINIO_PORT: 9000
+      MINIO_PUBLIC_HOST: localhost
+      MINIO_PUBLIC_PORT: 9000
     depends_on:
       postgres:
         condition: service_healthy
@@ -57,6 +67,10 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      minio:
+        condition: service_started
+      minio_init:
+        condition: service_completed_successfully
     command: celery -A src.celery_app:celery_app worker --loglevel=info
 
   postgres:
@@ -114,6 +128,22 @@ services:
       - "9001:9001"
     volumes:
       - minio_data:/data
+
+  minio_init:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      MINIO_HOST: minio
+      MINIO_PORT: 9000
+      MINIO_PUBLIC_HOST: localhost
+      MINIO_PUBLIC_PORT: 9000
+    depends_on:
+      minio:
+        condition: service_started
+    command: python -m scripts.init_minio
 
 volumes:
   postgres_data:

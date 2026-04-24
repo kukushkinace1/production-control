@@ -26,6 +26,17 @@ class Settings(BaseSettings):
     celery_task_serializer: str = "json"
     celery_result_serializer: str = "json"
     celery_accept_content: str = "json"
+    minio_root_user: str = "minioadmin"
+    minio_root_password: str = "minioadmin"
+    minio_host: str = "localhost"
+    minio_port: int = 9000
+    minio_secure: bool = False
+    minio_public_host: str = "localhost"
+    minio_public_port: int = 9000
+    minio_reports_bucket: str = "reports"
+    minio_exports_bucket: str = "exports"
+    minio_imports_bucket: str = "imports"
+    minio_presigned_expires_days: int = 7
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -56,6 +67,16 @@ class Settings(BaseSettings):
             f"{self.rabbitmq_default_user}:{self.rabbitmq_default_pass}"
             f"@{self.rabbitmq_host}:{self.rabbitmq_port}//"
         )
+
+    @computed_field
+    @property
+    def minio_endpoint(self) -> str:
+        return f"{self.minio_host}:{self.minio_port}"
+
+    @computed_field
+    @property
+    def minio_public_endpoint(self) -> str:
+        return f"{self.minio_public_host}:{self.minio_public_port}"
 
 
 @lru_cache
