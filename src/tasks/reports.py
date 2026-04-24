@@ -12,7 +12,7 @@ from src.core.database import AsyncSessionLocal
 from src.domain.exceptions import DomainError
 from src.domain.services import BatchService
 from src.storage import MinIOService
-from src.utils import generate_batch_report_excel
+from src.utils import generate_batch_report_excel, generate_batch_report_pdf
 
 logger = get_task_logger(__name__)
 
@@ -33,24 +33,32 @@ async def _generate_batch_report_async(
         )
         report_data = await service.get_batch_report_data(batch_id)
 
+    stage = "generating_pdf" if report_format == "pdf" else "generating_excel"
     celery_app.backend.store_result(
         task_id,
-        {"current": 2, "total": 3, "progress": 66, "stage": "generating_excel"},
+        {"current": 2, "total": 3, "progress": 66, "stage": stage},
         state="PROGRESS",
     )
-    workbook_bytes = generate_batch_report_excel(report_data)
+    if report_format == "pdf":
+        file_bytes = generate_batch_report_pdf(report_data)
+        extension = "pdf"
+        content_type = "application/pdf"
+    else:
+        file_bytes = generate_batch_report_excel(report_data)
+        extension = "xlsx"
+        content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
     object_name = (
         f"batch-reports/batch-{batch_id}/"
-        f"batch_{batch_id}_{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}.xlsx"
+        f"batch_{batch_id}_{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}.{extension}"
     )
     minio_service = MinIOService()
     minio_service.ensure_bucket(settings.minio_reports_bucket)
     url = minio_service.upload_bytes(
         bucket=settings.minio_reports_bucket,
         object_name=object_name,
-        data=workbook_bytes,
-        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        data=file_bytes,
+        content_type=content_type,
     )
 
     async with AsyncSessionLocal() as session:
@@ -72,6 +80,7 @@ async def _generate_batch_report_async(
         "bucket": settings.minio_reports_bucket,
         "object_name": object_name,
         "url": url,
+        "file_size": len(file_bytes),
     }
 
 

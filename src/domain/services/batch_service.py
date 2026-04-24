@@ -132,6 +132,12 @@ class BatchService:
         batch = await self.get_batch(batch_id)
         was_closed = batch.is_closed
         updates = payload.model_dump(exclude_unset=True)
+        original_updates = dict(updates)
+        changed_fields = {
+            field: value
+            for field, value in original_updates.items()
+            if getattr(batch, field, None) != value
+        }
         closes_batch = updates.get("is_closed") is True and not was_closed
 
         if "is_closed" in updates:
@@ -149,6 +155,18 @@ class BatchService:
             raise ConflictError("Batch update conflicts with existing data.") from exc
 
         updated_batch = await self.get_batch(batch_id)
+        if changed_fields:
+            await self._emit_event(
+                "batch_updated",
+                {
+                    "id": updated_batch.id,
+                    "batch_number": updated_batch.batch_number,
+                    "changes": {
+                        field: value.isoformat() if hasattr(value, "isoformat") else value
+                        for field, value in changed_fields.items()
+                    },
+                },
+            )
         await self.invalidate_batch_cache(batch_id)
         if closes_batch:
             await self._emit_event(

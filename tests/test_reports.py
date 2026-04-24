@@ -5,7 +5,7 @@ import pytest
 from openpyxl import load_workbook
 
 from src.main import app
-from src.utils import generate_batch_report_excel
+from src.utils import generate_batch_report_excel, generate_batch_report_pdf
 
 
 def build_report_data() -> dict:
@@ -60,6 +60,13 @@ def test_generate_batch_report_excel_creates_expected_sheets() -> None:
     assert workbook["products"]["A2"].value == "CODE-001"
     assert workbook["statistics"]["A2"].value == "Total Products"
     assert workbook["statistics"]["B2"].value == 2
+
+
+def test_generate_batch_report_pdf_creates_pdf_bytes() -> None:
+    pdf_bytes = generate_batch_report_pdf(build_report_data())
+
+    assert pdf_bytes.startswith(b"%PDF-1.4")
+    assert b"%%EOF" in pdf_bytes
 
 
 @pytest.mark.asyncio

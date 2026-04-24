@@ -25,6 +25,7 @@ pandas = "^2.2.0"
 python-multipart = "^0.0.20"
 tenacity = "^9.1.0"
 structlog = "^25.4.0"
+flower = "^2.0.1"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.4.0"

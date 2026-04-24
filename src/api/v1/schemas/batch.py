@@ -161,7 +161,7 @@ class BatchAsyncAggregationRequest(APIModel):
 
 
 class BatchReportRequest(APIModel):
-    format: Literal["excel"] = "excel"
+    format: Literal["excel", "pdf"] = "excel"
 
 
 class BatchExportFilters(APIModel):

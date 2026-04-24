@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import date
+from datetime import date, datetime
 
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import selectinload
@@ -135,6 +135,21 @@ class BatchRepository(BaseRepository):
         stmt = select(Batch).options(
             selectinload(Batch.products),
             selectinload(Batch.work_center),
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def list_expired_open_batches(self, now: datetime) -> list[Batch]:
+        stmt = (
+            select(Batch)
+            .where(
+                Batch.is_closed.is_(False),
+                Batch.shift_end < now,
+            )
+            .options(
+                selectinload(Batch.products),
+                selectinload(Batch.work_center),
+            )
         )
         result = await self.session.execute(stmt)
         return list(result.scalars().all())

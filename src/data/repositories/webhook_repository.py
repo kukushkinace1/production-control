@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from sqlalchemy import Select, func, select
+from sqlalchemy.orm import selectinload
 
 from src.data.models import WebhookDelivery, WebhookSubscription
 from src.data.repositories.base_repository import BaseRepository
@@ -80,3 +81,18 @@ class WebhookRepository(BaseRepository):
         result = await self.session.execute(stmt)
         total = await self.session.scalar(count_stmt)
         return result.scalars().all(), total or 0
+
+    async def list_retryable_failed_deliveries(self) -> list[WebhookDelivery]:
+        stmt = (
+            select(WebhookDelivery)
+            .join(WebhookDelivery.subscription)
+            .where(
+                WebhookDelivery.status == "failed",
+                WebhookSubscription.is_active.is_(True),
+                WebhookDelivery.attempts <= WebhookSubscription.retry_count,
+            )
+            .options(selectinload(WebhookDelivery.subscription))
+            .order_by(WebhookDelivery.id)
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())

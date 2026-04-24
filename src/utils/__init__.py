@@ -5,9 +5,11 @@ from src.utils.excel_parser import (
     parse_batch_import_file,
     validate_batch_import_row,
 )
+from src.utils.pdf_generator import generate_batch_report_pdf
 
 __all__ = [
     "generate_batch_report_excel",
+    "generate_batch_report_pdf",
     "generate_batches_export_csv",
     "generate_batches_export_excel",
     "parse_batch_import_file",
