@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     minio_secure: bool = False
     minio_public_host: str = "localhost"
     minio_public_port: int = 9000
+    minio_region: str = "us-east-1"
     minio_reports_bucket: str = "reports"
     minio_exports_bucket: str = "exports"
     minio_imports_bucket: str = "imports"

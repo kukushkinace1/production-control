@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 from collections.abc import Sequence
+from datetime import date
 
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import selectinload
@@ -79,3 +82,38 @@ class BatchRepository(BaseRepository):
         items = result.scalars().all()
         total = await self.session.scalar(count_stmt)
         return items, total or 0
+
+    async def list_for_export(
+        self,
+        *,
+        is_closed: bool | None = None,
+        batch_number: int | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        work_center_identifier: str | None = None,
+        shift: str | None = None,
+    ) -> list[Batch]:
+        stmt = (
+            select(Batch)
+            .options(
+                selectinload(Batch.products),
+                selectinload(Batch.work_center),
+            )
+            .order_by(Batch.batch_date.desc(), Batch.id.desc())
+        )
+
+        if is_closed is not None:
+            stmt = stmt.where(Batch.is_closed == is_closed)
+        if batch_number is not None:
+            stmt = stmt.where(Batch.batch_number == batch_number)
+        if date_from is not None:
+            stmt = stmt.where(Batch.batch_date >= date_from)
+        if date_to is not None:
+            stmt = stmt.where(Batch.batch_date <= date_to)
+        if shift is not None:
+            stmt = stmt.where(Batch.shift == shift)
+        if work_center_identifier is not None:
+            stmt = stmt.where(Batch.work_center.has(identifier=work_center_identifier))
+
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
