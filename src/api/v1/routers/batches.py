@@ -10,12 +10,14 @@ from src.api.v1.schemas.batch import (
     BatchDetailResponse,
     BatchFilterParams,
     BatchListResponse,
+    BatchReportRequest,
     BatchResponse,
     BatchUpdateRequest,
 )
 from src.api.v1.schemas.task import TaskAcceptedResponse
 from src.core.dependencies import get_batch_service
 from src.tasks.aggregation import aggregate_products_batch
+from src.tasks.reports import generate_batch_report
 from src.domain.services import BatchService
 
 router = APIRouter(prefix="/batches", tags=["batches"])
@@ -103,4 +105,23 @@ async def aggregate_batch_async(
         task_id=task.id,
         status="PENDING",
         message="Aggregation task started",
+    )
+
+
+@router.post(
+    "/{batch_id}/reports",
+    response_model=TaskAcceptedResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def create_batch_report(
+    batch_id: int,
+    payload: BatchReportRequest,
+    service: BatchServiceDep,
+) -> TaskAcceptedResponse:
+    await service.get_batch(batch_id)
+    task = generate_batch_report.delay(batch_id=batch_id, report_format=payload.format)
+    return TaskAcceptedResponse(
+        task_id=task.id,
+        status="PENDING",
+        message="Report generation task started",
     )

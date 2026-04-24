@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import AliasChoices, Field, model_validator
 
@@ -150,6 +151,10 @@ class BatchAsyncAggregationRequest(APIModel):
             raise ValueError("At least one non-empty unique code must be provided.")
 
         return self
+
+
+class BatchReportRequest(APIModel):
+    format: Literal["excel"] = "excel"
 
 
 class AggregationError(APIModel):
