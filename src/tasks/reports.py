@@ -53,6 +53,18 @@ async def _generate_batch_report_async(
         content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
+    async with AsyncSessionLocal() as session:
+        service = BatchService(session)
+        await service._emit_event(
+            "report_generated",
+            {
+                "batch_id": batch_id,
+                "report_type": report_format,
+                "file_url": url,
+                "object_name": object_name,
+            },
+        )
+
     return {
         "success": True,
         "batch_id": batch_id,

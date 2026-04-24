@@ -12,6 +12,7 @@ async def test_aggregate_products_by_codes_marks_products_and_collects_errors() 
     session = AsyncMock()
     service = BatchService(session)
     service.get_batch = AsyncMock(return_value=SimpleNamespace(id=1))
+    service._emit_event = AsyncMock()
 
     product_ok = SimpleNamespace(
         unique_code="CODE-OK",
@@ -60,6 +61,7 @@ async def test_aggregate_products_by_codes_reports_progress_for_each_code() -> N
     session = AsyncMock()
     service = BatchService(session)
     service.get_batch = AsyncMock(return_value=SimpleNamespace(id=7))
+    service._emit_event = AsyncMock()
 
     products = [
         SimpleNamespace(unique_code="A", batch_id=7, is_aggregated=False, aggregated_at=None),
