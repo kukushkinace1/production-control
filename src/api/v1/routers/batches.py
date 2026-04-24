@@ -16,6 +16,7 @@ from src.api.v1.schemas.batch import (
     BatchListResponse,
     BatchReportRequest,
     BatchResponse,
+    BatchStatisticsResponse,
     BatchUpdateRequest,
 )
 from src.api.v1.schemas.task import TaskAcceptedResponse
@@ -93,10 +94,19 @@ async def export_batches(payload: BatchExportRequest) -> TaskAcceptedResponse:
     )
 
 
+@router.get("/{batch_id}/statistics", response_model=BatchStatisticsResponse)
+async def get_batch_statistics(
+    batch_id: int,
+    service: BatchServiceDep,
+) -> BatchStatisticsResponse:
+    return BatchStatisticsResponse.model_validate(await service.get_batch_statistics(batch_id))
+
+
 @router.get("/{batch_id}", response_model=BatchDetailResponse)
 async def get_batch(batch_id: int, service: BatchServiceDep) -> BatchDetailResponse:
-    batch = await service.get_batch(batch_id)
-    return BatchDetailResponse.model_validate(batch)
+    return BatchDetailResponse.model_validate(
+        await service.get_batch_detail_response_data(batch_id),
+    )
 
 
 @router.patch("/{batch_id}", response_model=BatchResponse)

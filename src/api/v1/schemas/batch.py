@@ -118,6 +118,13 @@ class BatchDetailResponse(APIModel):
     products: list[ProductBatchItemResponse]
 
 
+class BatchStatisticsResponse(APIModel):
+    batch_info: dict
+    production_stats: dict
+    timeline: dict
+    team_performance: dict
+
+
 class BatchListResponse(PaginationResponse):
     items: list[BatchResponse]
 

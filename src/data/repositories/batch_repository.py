@@ -117,3 +117,24 @@ class BatchRepository(BaseRepository):
 
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
+
+    async def list_by_ids(self, batch_ids: list[int]) -> list[Batch]:
+        stmt = (
+            select(Batch)
+            .where(Batch.id.in_(batch_ids))
+            .options(
+                selectinload(Batch.products),
+                selectinload(Batch.work_center),
+            )
+            .order_by(Batch.id)
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def list_all_for_analytics(self) -> list[Batch]:
+        stmt = select(Batch).options(
+            selectinload(Batch.products),
+            selectinload(Batch.work_center),
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
