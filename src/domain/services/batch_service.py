@@ -1,5 +1,5 @@
 from collections.abc import Awaitable, Callable
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,9 +9,12 @@ from src.api.v1.schemas.batch import (
     BatchAggregationRequest,
     BatchAggregationResponse,
     BatchCreateRequest,
+    BatchDetailResponse,
     BatchFilterParams,
+    BatchResponse,
     BatchUpdateRequest,
 )
+from src.core.cache import CacheService
 from src.data.models import Batch, Product, WorkCenter
 from src.data.repositories import (
     BatchRepository,
@@ -29,6 +32,7 @@ class BatchService:
         self.product_repository = ProductRepository(session)
         self.webhook_repository = WebhookRepository(session)
         self.work_center_repository = WorkCenterRepository(session)
+        self.cache = CacheService()
 
     async def create_batches(self, payloads: list[BatchCreateRequest]) -> list[Batch]:
         created_batches: list[Batch] = []
@@ -72,6 +76,7 @@ class BatchService:
             raise ConflictError("Batch creation conflicts with existing data.") from exc
 
         batches = [await self.get_batch(batch.id) for batch in created_batches]
+        await self.invalidate_batch_cache()
         for batch in batches:
             await self._emit_event("batch_created", self._build_batch_event_payload(batch))
         return batches
@@ -83,6 +88,11 @@ class BatchService:
         return batch
 
     async def list_batches(self, filters: BatchFilterParams) -> tuple[list[Batch], int]:
+        cache_key = f"batches_list:{filters.model_dump_json()}"
+        cached = await self.cache.get_json(cache_key)
+        if cached is not None:
+            return cached["items"], cached["total"]
+
         items, total = await self.batch_repository.list(
             is_closed=filters.is_closed,
             batch_number=filters.batch_number,
@@ -93,7 +103,30 @@ class BatchService:
             offset=filters.offset,
             limit=filters.limit,
         )
-        return list(items), total
+        batches = list(items)
+        await self.cache.set_json(
+            cache_key,
+            {
+                "items": [
+                    BatchResponse.model_validate(batch).model_dump(mode="json")
+                    for batch in batches
+                ],
+                "total": total,
+            },
+            ttl=60,
+        )
+        return batches, total
+
+    async def get_batch_detail_response_data(self, batch_id: int) -> dict:
+        cache_key = f"batch_detail:{batch_id}"
+        cached = await self.cache.get_json(cache_key)
+        if cached is not None:
+            return cached
+
+        batch = await self.get_batch(batch_id)
+        data = BatchDetailResponse.model_validate(batch).model_dump(mode="json")
+        await self.cache.set_json(cache_key, data, ttl=600)
+        return data
 
     async def update_batch(self, batch_id: int, payload: BatchUpdateRequest) -> Batch:
         batch = await self.get_batch(batch_id)
@@ -116,6 +149,7 @@ class BatchService:
             raise ConflictError("Batch update conflicts with existing data.") from exc
 
         updated_batch = await self.get_batch(batch_id)
+        await self.invalidate_batch_cache(batch_id)
         if closes_batch:
             await self._emit_event(
                 "batch_closed",
@@ -183,6 +217,7 @@ class BatchService:
                     await maybe_awaitable
 
         await self.session.commit()
+        await self.invalidate_batch_cache(batch.id)
 
         for product in aggregated_products:
             await self._emit_event(
@@ -301,6 +336,7 @@ class BatchService:
                     await self.batch_repository.create(batch)
                     await self.session.commit()
                     created += 1
+                    await self.invalidate_batch_cache(batch.id)
                 except IntegrityError as exc:
                     await self.session.rollback()
                     skipped += 1
@@ -354,6 +390,54 @@ class BatchService:
             for batch in batches
         ]
 
+    async def get_batch_statistics(self, batch_id: int) -> dict:
+        cache_key = f"batch_statistics:{batch_id}"
+        cached = await self.cache.get_json(cache_key)
+        if cached is not None:
+            return cached
+
+        batch = await self.get_batch(batch_id)
+        total_products = len(batch.products)
+        aggregated = sum(1 for product in batch.products if product.is_aggregated)
+        remaining = total_products - aggregated
+        duration_hours = _batch_duration_hours(batch)
+        elapsed_hours = _elapsed_hours(batch)
+        products_per_hour = round(aggregated / elapsed_hours, 2) if elapsed_hours else 0.0
+        remaining_hours = round(remaining / products_per_hour, 2) if products_per_hour else None
+        estimated_completion = (
+            (datetime.now(UTC) + _hours_delta(remaining_hours)).isoformat()
+            if remaining_hours is not None
+            else None
+        )
+
+        data = {
+            "batch_info": {
+                "id": batch.id,
+                "batch_number": batch.batch_number,
+                "batch_date": batch.batch_date.isoformat(),
+                "is_closed": batch.is_closed,
+            },
+            "production_stats": {
+                "total_products": total_products,
+                "aggregated": aggregated,
+                "remaining": remaining,
+                "aggregation_rate": _percent(aggregated, total_products),
+            },
+            "timeline": {
+                "shift_duration_hours": duration_hours,
+                "elapsed_hours": elapsed_hours,
+                "products_per_hour": products_per_hour,
+                "estimated_completion": estimated_completion,
+            },
+            "team_performance": {
+                "team": batch.team,
+                "avg_products_per_hour": products_per_hour,
+                "efficiency_score": min(round(_percent(aggregated, total_products), 2), 100.0),
+            },
+        }
+        await self.cache.set_json(cache_key, data, ttl=300)
+        return data
+
     async def _get_or_create_work_center(self, identifier: str, name: str) -> WorkCenter:
         work_center = await self.work_center_repository.get_by_identifier(identifier)
         if work_center is not None:
@@ -362,6 +446,12 @@ class BatchService:
         work_center = WorkCenter(identifier=identifier, name=name)
         await self.work_center_repository.create(work_center)
         return work_center
+
+    async def invalidate_batch_cache(self, batch_id: int | None = None) -> None:
+        await self.cache.delete("dashboard_stats")
+        await self.cache.delete_pattern("batches_list:*")
+        if batch_id is not None:
+            await self.cache.delete(f"batch_detail:{batch_id}", f"batch_statistics:{batch_id}")
 
     async def _emit_event(self, event_type: str, payload: dict) -> None:
         subscriptions = await self.webhook_repository.list_active_subscriptions_for_event(
@@ -403,3 +493,23 @@ def _parse_filter_date(value) -> date | None:
     if isinstance(value, date):
         return value
     return date.fromisoformat(str(value))
+
+
+def _batch_duration_hours(batch: Batch) -> float:
+    return round((batch.shift_end - batch.shift_start).total_seconds() / 3600, 2)
+
+
+def _elapsed_hours(batch: Batch) -> float:
+    now = datetime.now(UTC)
+    effective_end = min(now, batch.shift_end)
+    if effective_end <= batch.shift_start:
+        return 0.0
+    return round((effective_end - batch.shift_start).total_seconds() / 3600, 2)
+
+
+def _hours_delta(hours: float) -> timedelta:
+    return timedelta(hours=hours)
+
+
+def _percent(value: int, total: int) -> float:
+    return round((value / total) * 100, 2) if total else 0.0

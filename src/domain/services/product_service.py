@@ -2,6 +2,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.v1.schemas.product import ProductCreateRequest
+from src.core.cache import CacheService
 from src.data.models import Product
 from src.data.repositories import BatchRepository, ProductRepository
 from src.domain.exceptions import ConflictError, NotFoundError
@@ -12,6 +13,7 @@ class ProductService:
         self.session = session
         self.product_repository = ProductRepository(session)
         self.batch_repository = BatchRepository(session)
+        self.cache = CacheService()
 
     async def create_product(self, payload: ProductCreateRequest) -> Product:
         existing_product = await self.product_repository.get_by_unique_code(payload.unique_code)
@@ -30,6 +32,12 @@ class ProductService:
         except IntegrityError as exc:
             await self.session.rollback()
             raise ConflictError("Product creation conflicts with existing data.") from exc
+        await self.cache.delete("dashboard_stats")
+        await self.cache.delete_pattern("batches_list:*")
+        await self.cache.delete(
+            f"batch_detail:{payload.batch_id}",
+            f"batch_statistics:{payload.batch_id}",
+        )
 
         refreshed_product = await self.product_repository.get_by_unique_code(payload.unique_code)
         if refreshed_product is None:
